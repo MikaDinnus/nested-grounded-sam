@@ -5,16 +5,20 @@ import cv2
 import torch
 from torchvision.ops import box_iou
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-import os, sys
+from PIL import Image, ImageDraw
+import os
 import json
 import time
+from write_json import save_json
+from shapely.geometry import Polygon
+from composite_indicator import calcDP2
 
 ######### SETUP #########
 
 print("################################" + "STARTING NESTED OPERATION OF " + str(DATASET_NUMBER) + "################################")
 CURRENT_DATASET = f"building_facade/ADE_train_0000{DATASET_NUMBER}"
-mean_value = 0.0
+mean_value_boxes = 0.0
+mean_value_segments = 0.0
 
 # start timer for flat + nested
 start_flat_nested = time.process_time()
@@ -46,9 +50,20 @@ print("SAM model loaded successfully.")
 ################################
 
 
+######### EVALUATION FILES SETUP #########
+
+if not os.path.exists(f"evaluation_images/{DATASET_NUMBER}_evaluation"):
+    os.makedirs(f"evaluation_images/{DATASET_NUMBER}_evaluation")
+if not os.path.exists(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested"):
+    os.makedirs(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested")
+    print("Created nested evaluation directory for " + DATASET_NUMBER + " dataset.")
+
+################################
+
+
 ######### HELPER FUNCS #########
 
-# From xc yc w h to x1 y1 x2 y2
+# From xc yc w h to x1 y1 x2 y2 with scaled width and height
 def convertcoords(boxes, width, height):
     x_center, y_center, w, h = boxes
 
@@ -59,7 +74,14 @@ def convertcoords(boxes, width, height):
 
     return x1,y1,x2,y2
 
-previous = None
+# From xc yc w h to x1 y1 x2 y2 without scaling
+def xcycwh_to_xyxy(bbox):
+    xc, yc, w, h = bbox
+    x1 = xc - w / 2
+    y1 = yc - h / 2
+    x2 = xc + w / 2
+    y2 = yc + h / 2
+    return [x1, y1, x2, y2]
 
 # From x1 y1 x2 y2 to xc yc w h
 def xyxy_to_xcycwh(bbox):
@@ -69,36 +91,6 @@ def xyxy_to_xcycwh(bbox):
     xc = x1 + w / 2
     yc = y1 + h / 2
     return [xc, yc, w, h]
-
-# Prepare image for different models
-def prepareimage(image, modell, initial):
-    global previous
-    if previous is not None:
-        print("previous preparation was: " + previous)
-        if previous == modell:
-            print("No new preparation needed")
-            return image
-    else:
-        print("No previous preparation")
-    previous = modell
-
-    if initial:
-        print("Initial preparation")
-        return image
-
-    if modell in ["sam", "groundingdino"]:
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # BGR to RGB
-        image = np.transpose(image, (2, 0, 1))          # HWC to CHW
-        image = image.astype(np.float32) / 255.0        # Normalize
-    elif modell == "opencv":
-        image = np.transpose(image, (1, 2, 0))          # CHW to HWC
-        image = (image * 255).clip(0, 255).astype(np.uint8)
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)      
-    else:
-        print("Unknown model type. Please use 'sam', 'groundingdino' or 'opencv'.")
-        return None
-    print("Image prepared for " + modell)
-    return image
 
 # Returns the area of the box
 def box_area(box):
@@ -117,7 +109,7 @@ def dino(image, caption):
         device='cpu'
     )
     image_source = (image * 255).byte().permute(1, 2, 0).numpy() # Von 0..1 zu 0..255
-    print("Image size  in dino after denormalization " + str(image_source.shape))
+    print("Image size  in dino (predicting: " + caption + ") after denormalization " + str(image_source.shape))
     annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
     return Image.fromarray(annotated_frame), boxes, logits, phrases
 
@@ -132,26 +124,29 @@ def bbox_from_polygon(x, y):
     return [min(x), min(y), max(x), max(y)]
 
 # Looks fpor objects with parameters windows etc. 
-def find_objects(data, search_terms):
+def find_objects(data, search_terms, return_polygon = False): # Standardmäßig False, wenn True dann Segmente mitgeben
     results = []
-    objects = data["annotation"]["object"]
+    objects = data["annotation"]["object"] # nimmt alle Objekte aus den Annotations
     for obj in objects:
-        name = obj.get("name", "").lower()
-        raw_name = obj.get("raw_name", "").lower()
+        name = obj.get("name", "").lower() # nehme den Name (oder "")
+        raw_name = obj.get("raw_name", "").lower() # alternativname innerhalb von ade20k
         for term in search_terms:
             term = term.lower()
             if term in name or term in raw_name:
-                poly = obj.get("polygon", {})
+                poly = obj.get("polygon", {}) # extrahiere Segmentierungsppoly 
                 x = poly.get("x", [])
                 y = poly.get("y", [])
                 if x and y:
-                    bbox = bbox_from_polygon(x, y)
-                    results.append({
+                    bbox = bbox_from_polygon(x, y) # berechne bbox aus polygon
+                    entry = {
                         "id": obj.get("id"),
                         "name": obj.get("name"),
                         "raw_name": obj.get("raw_name"),
-                        "bbox": bbox
-                    })
+                        "bbox": bbox,
+                    }
+                    if return_polygon: # Wird nur angehangen in der getGTSegments Funktion
+                        entry["polygon"] = {"x": x, "y": y}
+                    results.append(entry)
                 break
     return results
 
@@ -187,6 +182,22 @@ def getIoUBboxes():
 
     return output
 
+# Returns the segmetns of the searched objects ground truth
+def getGTSegments():
+    filename = f"{CURRENT_DATASET}.json"
+    data = load_json(filename)
+
+    search_terms = ["window", "windows", "window pane", "pane"]
+
+    found = find_objects(data, search_terms, return_polygon=True)
+
+    output = []
+
+    for obj in found:
+        output.append(obj["polygon"])
+
+    return output
+
 # Remaps the pred-boxes (prediction made on cropped image) to the original image
 def remapbbox(bboxes, crop_x1, crop_y1):
     remapped = []
@@ -209,6 +220,30 @@ def rescalebbox(bboxes):
         h_rescaled = h * SCALE_UP_VALUE
         rescaled.append([xc_rescaled, yc_rescaled, w_rescaled, h_rescaled])
     return rescaled
+
+# Rescales the segments to the new image size
+def rescalesegment(segments):
+    rescaled = []
+    print("Segments are scaled up by ", SCALE_UP_VALUE)
+    for segment in segments:
+        x = segment["x"]
+        y = segment["y"]
+        x_rescaled = [coord * SCALE_UP_VALUE for coord in x]
+        y_rescaled = [coord * SCALE_UP_VALUE for coord in y]
+        rescaled.append({"x": x_rescaled, "y": y_rescaled})
+    return rescaled
+
+# Converts from normalized coordinates to pixel coordinates
+def fromnormtopixel(bboxes, crop_width, crop_height):
+    repixeld= []
+    for bbox in bboxes:
+        xc_norm, yc_norm, w_norm, h_norm = bbox
+        xc_pixel = xc_norm * crop_width
+        yc_pixel = yc_norm * crop_height
+        w_pixel = w_norm * crop_width
+        h_pixel = h_norm * crop_height
+        repixeld.append([xc_pixel, yc_pixel, w_pixel, h_pixel])
+    return repixeld
 
 # Pairs predicted boxes with ground truth boxes (greedy)
 def pair_boxes(gts, preds):
@@ -236,10 +271,41 @@ def pair_boxes(gts, preds):
     
     return pairs
 
+# Paitrs predicted segments with ground truth segments based on IoU (greedy)
+def pair_segments(gt_segments, pred_segments):
+    gt_polys = [Polygon(zip(seg['x'], seg['y'])) for seg in gt_segments]
+    pred_polys = [Polygon(zip(seg['x'], seg['y'])) for seg in pred_segments]
+
+    iou_threshold = 0.5
+    iou_pairs = []
+    for i, gt in enumerate(gt_polys):
+        for j, pred in enumerate(pred_polys):
+            if not gt.is_valid or not pred.is_valid:
+                continue
+            inter = gt.intersection(pred).area
+            union = gt.union(pred).area
+            iou = inter / union if union > 0 else 0
+            if iou > 0:
+                iou_pairs.append((iou, i, j))
+
+    iou_pairs.sort(reverse=True)
+
+    paired_gt = set()
+    paired_pred = set()
+    pairs = []
+
+    for iou, gt_idx, pred_idx in iou_pairs:
+        if gt_idx not in paired_gt and pred_idx not in paired_pred and iou >= iou_threshold:
+            pairs.append((gt_idx, pred_idx, iou))
+            paired_gt.add(gt_idx)
+            paired_pred.add(pred_idx)
+
+    return pairs
+
 # Calc the IoU and return IoU with boxes and mean value
 def iou(pairs):
     length = 0
-    global mean_value
+    global mean_value_boxes
     results = []
     for countID, (boxA, boxB) in enumerate(pairs, start=1):
         xA = max(boxA[0], boxB[0])
@@ -260,38 +326,97 @@ def iou(pairs):
         print(f"IoU {countID}: {iou_value:.4f}")
         if iou_value != 0:
             length += 1
-            mean_value = mean_value + iou_value
-            print("mean-value: " + str(mean_value)) 
+            mean_value_boxes = mean_value_boxes + iou_value
+            print("Boxes mean-value: " + str(mean_value_boxes)) 
         results.append((iou_value, boxA, boxB))
 
-    if mean_value != 0:
-        mean_value = mean_value / length
-    print(f"Mean IoU: {mean_value:.4f}")
+    if mean_value_boxes != 0:
+        mean_value_boxes = mean_value_boxes / length
+    print(f"Mean IoU: {mean_value_boxes:.4f}")
     return results
 
+# Calc the IoU and return IoU with segmentID and IoU
+def iou_segments(segments_paired, segments_groundtruth, segments_predicted):
+    global mean_value_segments
+    length = 0
+    ious = []
+    for gt_idx, pred_idx, iou_val in segments_paired:
+        gt_segment = segments_groundtruth[gt_idx]
+        pred_segment = segments_predicted[pred_idx]
+
+        gt_points = list(zip(gt_segment["x"], gt_segment["y"]))
+        pred_points = list(zip(pred_segment["x"], pred_segment["y"]))
+
+        poly_gt = Polygon(gt_points)
+        poly_pred = Polygon(pred_points)
+
+        if not poly_gt.is_valid or not poly_pred.is_valid:
+            iou = 0
+        else:
+            intersection_area = poly_gt.intersection(poly_pred).area
+            union_area = poly_gt.union(poly_pred).area
+            iou = intersection_area / union_area if union_area != 0 else 0
+            print("After Iteration " + str(length) + " IOU: " + str(iou))
+
+        if iou != 0:
+            length += 1
+            mean_value_segments = mean_value_segments + iou
+            print("Segments mean-value: " + str(mean_value_segments))
+
+        print(f"IoU für Segment-Paar ({gt_idx}, {pred_idx}): {iou:.4f}")
+        ious.append((iou, gt_segment, pred_segment))
+
+    if mean_value_segments != 0:
+        mean_value_segments = mean_value_segments / length
+
+    return ious
 
 # Calc precision value
-def calcPrecision():
+def calcPrecisionBox():
     pred_count = len(boxes_predicted)
     tp = len(pairs)
     fp = pred_count - tp
     return tp / (tp + fp) if (tp + fp) > 0 else 0.0
 
+# Calc precision value
+def calcPrecisionSegment():
+    pred_count = len(segments_predicted)
+    tp = len(segments_paired)
+    fp = pred_count - tp
+    return tp / (tp + fp) if (tp + fp) > 0 else 0.0
+
 # Calc recall value
-def calcRecall():
+def calcRecallBox():
     gt_count = getGTCount()
     tp = len(pairs)
     fn = gt_count - tp
     return tp / (tp + fn) if (tp + fn) > 0 else 0.0
 
+# Calc recall value
+def calcRecallSegment():
+    gt_count = len(segments_groundtruth)
+    tp = len(segments_paired)
+    fn = gt_count - tp
+    return tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
 # Calc F1 valuee
-def calcF1():
-    precision = calcPrecision()
-    recall = calcRecall()
+def calcF1Box():
+    precision = calcPrecisionBox()
+    recall = calcRecallBox()
     if (precision + recall) <= 0:
         return 0.0
     return 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
+# Calc F1 valuee
+def calcF1Segment():
+    precision = calcPrecisionSegment()
+    recall = calcRecallSegment()
+    if (precision + recall) <= 0:
+        return 0.0
+    return 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+def value_to_excel(value):
+    return value.item() if hasattr(value, "item") else value
 ################################
 
 
@@ -319,6 +444,13 @@ x1, y1, x2, y2 = largest_box
 
 print("Größte Box:", largest_box)
 
+
+BUFFER = int(0.01 * SCALE_UP_VALUE)
+x1 = max(0, x1 - BUFFER)
+y1 = max(0, y1 - BUFFER)
+x2 = min(width, x2 + BUFFER)
+y2 = min(height, y2 + BUFFER)
+
 cropped = image[:, y1:y2, x1:x2]
 crop_position = (x1, y1, x2, y2)
 print(cropped.shape)
@@ -326,7 +458,7 @@ print(cropped.shape)
 cropped_np = (cropped.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
 Image.fromarray(cropped_np)
-dino(cropped, "window")[0]
+#cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_nested_dino.jpg",dino(cropped, "window")[0])
 
 ################################
 
@@ -335,7 +467,6 @@ dino(cropped, "window")[0]
 
 start_nested = time.process_time()
 boxes_windows = dino(cropped, "windows")[1]
-boxes_predicted = [convertcoords(box, cropped.shape[2], cropped.shape[1]) for box in boxes_windows]
 image = cropped_np
 
 ################################
@@ -352,6 +483,7 @@ sam_predictor.set_image(image)
 # box: normalized box xywh -> unnormalized xyxy
 H, W, _ = image.shape
 boxes_xyxy = []
+segments_predicted = []
 for box in boxes_windows:
     boxes_xyxy.append(convertcoords(box, W, H))
 boxes_xyxy = torch.tensor(boxes_xyxy, dtype=torch.float32).unsqueeze(0)
@@ -363,16 +495,23 @@ masks, _, _ = sam_predictor.predict_torch(
             multimask_output = False,
         )
 for mask in masks:
-    mask = mask.cpu().numpy().squeeze()
-    image = np.where(mask[..., None], [0, 255, 0], image)
+    mask_np = mask.cpu().numpy().squeeze().astype(np.uint8)
+    image = np.where(mask_np[..., None], [0, 255, 0], image)
+
+    contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+    for contour in contours:
+        x = [int(p[0][0]) for p in contour]
+        y = [int(p[0][1]) for p in contour]
+
+        if len(x) > 2:
+            segments_predicted.append({"x": x, "y": y})
 
 image = image.astype(np.uint8)
 
-cv2.imwrite("output.jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_sam.jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
 
 ################################
-
-
 
 
 ############### GET GROUND TRUTH BOXES #################
@@ -393,16 +532,24 @@ crop_y1 = int(crop_position[1] - crop_position[3] / 2)
 
 SCALE_UP_VALUE = SCALE_UP_SIZE / ORG_SCALE_SIZE
 
-print("PRED: " + str(remapbbox(boxes_predicted, crop_x1, crop_y1)))
-boxes_predicted = remapbbox(boxes_predicted, crop_x1, crop_y1)
+boxes_windows = fromnormtopixel(boxes_windows, cropped.shape[2], cropped.shape[1])
 
-print("GT: " + str(rescalebbox(boxes_groundtruth)))
+print("after fromnormtopixel: ", boxes_windows)
+
+boxes_predicted = remapbbox(boxes_windows, crop_x1, crop_y1)
+
+print("after remapping: ", boxes_predicted)
+
+boxes_predicted= [xcycwh_to_xyxy(box) for box in boxes_predicted]
+
+print("after converting to xyxy: ", boxes_predicted)
+
 boxes_groundtruth = rescalebbox(boxes_groundtruth)
 
 ################################
 
 
-################# DRAW GROUND TRUTH AND PRED TO IMAGE ###############
+################# DRAW GROUND TRUTH AND PRED TO IMAGE (BOXES) ###############
 
 pilimage = Image.open(f"{CURRENT_DATASET}.jpg")
 
@@ -425,7 +572,31 @@ for box in boxes_predicted:
     draw.rectangle([left, top, right, bottom], outline="red", width=2)
 
 
-pilimage.save("boxes.jpg")
+pilimage.save(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_gt_pred.jpg")
+
+################################
+
+
+################# DRAW GROUND TRUTH AND PRED TO IMAGE (SEGMENTS) ###############
+
+pilimage = Image.open(f"{CURRENT_DATASET}.jpg")
+pilimage = pilimage.resize((SCALE_UP_SIZE, SCALE_UP_SIZE), Image.LANCZOS)
+drawS = ImageDraw.Draw(pilimage)
+
+segments_groundtruth = rescalesegment(getGTSegments())
+
+# GT in grün
+for segment in segments_groundtruth:
+    points = list(zip(segment["x"], segment["y"]))
+    drawS.polygon(points, outline="green")
+
+# Pred in rot
+for segment in segments_predicted:
+    points = list(zip(segment["x"], segment["y"]))
+    drawS.polygon(points, outline="red")
+
+
+pilimage.save(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_gt_pred_segments.jpg")
 
 ################################
 
@@ -437,8 +608,7 @@ print("Paired boxes: ", pairs)
 
 ################################
 
-
-################ CALC THE IUO AND DRAW ON IMAGE ################
+################ CALC THE IOU AND DRAW ON IMAGE (BOXES) ################
 
 iou_pairs = iou(pairs)
 
@@ -456,19 +626,59 @@ for pair in iou_pairs:
 
 image = cropped_np.astype(np.uint8)
 
-cv2.imwrite("iou.jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_paires_boxes.jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
 
 ################################
 
 
-################# CALC PRECISION AND RECALL ###############
+################ PAIRING OF GT TO PRED SEGMENTS ################
 
-print("GT count: ", getGTCount())
-print("Pred count: ", len(boxes_predicted))
-print("Pairs: ", len(pairs))
-print("Precision: ", calcPrecision())
-print("Recall: ", calcRecall())
-print("F1: ", calcF1())
+segments_paired = pair_segments(segments_groundtruth, segments_predicted)
+print("Paired segments: ", segments_paired)
+
+################################
+
+
+################ CALC THE IOU AND DRAW PAIRS ON IMAGE (SEGMENTS) ################
+
+iou_segm = iou_segments(segments_paired, segments_groundtruth, segments_predicted)
+
+pilimage = Image.open(f"{CURRENT_DATASET}.jpg")
+pilimage = pilimage.resize((SCALE_UP_SIZE, SCALE_UP_SIZE), Image.LANCZOS)
+drawSE = ImageDraw.Draw(pilimage)
+
+for pair in segments_paired:
+        gt_idx, pred_idx, iou = pair
+        gt_segment = segments_groundtruth[gt_idx]
+        gt_points = list(zip(gt_segment["x"], gt_segment["y"]))
+
+        pred_segment = segments_predicted[pred_idx]
+        pred_points = list(zip(pred_segment["x"], pred_segment["y"]))
+
+        drawSE.polygon(gt_points, outline="green")
+        drawSE.polygon(pred_points, outline="red")
+
+pilimage.save(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_pairs_segments.jpg")
+
+################################
+
+
+################# CALC PRECISION AND RECALL ###############7
+
+print("GT count Box: ", getGTCount())
+print("Pred count Box: ", len(boxes_predicted))
+print("Pairs Box: ", len(pairs))
+print("Precision Box: ", calcPrecisionBox())
+print("Recall Box: ", calcRecallBox())
+print("F1 Box: ", calcF1Box())
+print("Mean IoU of boxes: ", mean_value_boxes)
+print("GT count Seg: ", len(segments_groundtruth))
+print("Pred count Seg: ", len(segments_predicted))
+print("Pairs Seg: ", len(segments_paired))
+print("Precision Seg: ", calcPrecisionSegment())
+print("Recall Seg: ", calcRecallSegment())
+print("F1 Seg: ", calcF1Segment())
+print("Mean IoU of segments: ", mean_value_segments)
 
 ################################
 
@@ -477,17 +687,53 @@ print("F1: ", calcF1())
 processtime_flat_nested = time.process_time() - start_flat_nested
 processtime_nested = time.process_time() - start_nested
 
-namespace= {
+namespace_excel= {
     "CODE": DATASET_NUMBER,
-    "PRECISION": calcPrecision(),
-    "RECALL": calcRecall(),
-    "F1": calcF1(),
-    "MEANIOU": mean_value,
+    "PRECISIONBOX": value_to_excel(calcPrecisionBox()),
+    "RECALLBOX": value_to_excel(calcRecallBox()),
+    "F1BOX": value_to_excel(calcF1Box()),
+    "PRECISIONSEGMENT": value_to_excel(calcPrecisionSegment()),
+    "RECALLSEGMENT": value_to_excel(calcRecallSegment()),
+    "F1SEGMENT": value_to_excel(calcF1Segment()),
+    "MEANIOUBOX": value_to_excel(mean_value_boxes),
+    "MEANIOUSEGMENT": value_to_excel(mean_value_segments),
     "TIMEFLAT": 0,
     "TIMEFLATNESTED": processtime_flat_nested,
     "TIMENESTED": processtime_nested,
-    "TYPE": "NESTED"
+    "TYPE": "NESTED",
+    "GT_BOX": getGTCount(),
+    "PRED_BOX": len(boxes_predicted),
+    "PAIRS_BOX": len(pairs),
+    "GT_SEGMENT": len(segments_groundtruth),
+    "PRED_SEGMENT": len(segments_predicted),
+    "PAIRS_SEGMENT": len(segments_paired),
+    "DP2_INDEX": "tba"
+}
+
+dp2 = calcDP2(namespace_excel)
+namespace_excel["DP2_INDEX"] = value_to_excel(dp2)
+
+namespace_json = {
+    "CODE": DATASET_NUMBER,
+    "PRECISIONBOX": value_to_excel(calcPrecisionBox()),
+    "RECALLBOX": value_to_excel(calcRecallBox()),
+    "F1BOX": value_to_excel(calcF1Box()),
+    "PRECISIONSEGMENT": value_to_excel(calcPrecisionSegment()),
+    "RECALLSEGMENT": value_to_excel(calcRecallSegment()),
+    "F1SEGMENT": value_to_excel(calcF1Segment()),
+    "MEANIOUBOX": value_to_excel(mean_value_boxes),
+    "MEANIOUSEGMENT": value_to_excel(mean_value_segments),
+    "TYPE": "NESTED",
+    "GT_BOX": getGTCount(),
+    "PRED_BOX": len(boxes_predicted),
+    "PAIRS_BOX": len(pairs),
+    "GT_SEGMENT": len(segments_groundtruth),
+    "PRED_SEGMENT": len(segments_predicted),
+    "PAIRS_SEGMENT": len(segments_paired),
+    "DP2_INDEX": value_to_excel(dp2)
 }
 
 with open("write_excel.py") as file:
-    exec(file.read(), namespace)
+    exec(file.read(), namespace_excel)
+
+save_json(namespace_json)
