@@ -1,6 +1,14 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
+
+#
+# OUTDATED
+#
+
+
+
 file = pd.read_excel('validation_values.xlsx')
 file['TYPE'] = file['TYPE'].str.strip()
 
