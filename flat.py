@@ -27,7 +27,7 @@ start_flat = time.process_time()
 image = cv2.cvtColor(cv2.imread(f"{CURRENT_DATASET}.jpg"), cv2.COLOR_BGR2RGB)
 ORG_SCALE_SIZE = image.shape[1]
 # Skalieren auf 512x512
-image = cv2.resize(image, (SCALE_UP_SIZE, SCALE_UP_SIZE), interpolation=cv2.INTER_LINEAR)
+image = cv2.resize(image, (SCALE_UP_SIZE, SCALE_UP_SIZE), interpolation=cv2.INTER_CUBIC)
 # "In 0-1 Werte
 image = torch.from_numpy(image).float() / 255.0
 # Kanäle Höhe Breite
@@ -154,7 +154,7 @@ def getGTCount():
     filename = f"{CURRENT_DATASET}.json"
     data = load_json(filename)
 
-    search_terms = ["window", "windows", "window pane", "pane"]
+    search_terms = VOCAB_GROUNDTRUTH
 
     found = find_objects(data, search_terms)
 
@@ -170,7 +170,7 @@ def getIoUBboxes():
     filename = f"{CURRENT_DATASET}.json"
     data = load_json(filename)
 
-    search_terms = ["window", "windows", "window pane", "pane"]
+    search_terms = VOCAB_GROUNDTRUTH
 
     found = find_objects(data, search_terms)
 
@@ -186,7 +186,7 @@ def getGTSegments():
     filename = f"{CURRENT_DATASET}.json"
     data = load_json(filename)
 
-    search_terms = ["window", "windows", "window pane", "pane"]
+    search_terms = VOCAB_GROUNDTRUTH
 
     found = find_objects(data, search_terms, return_polygon=True)
 
@@ -422,7 +422,7 @@ def chooseboxes(boxes):
     if len(boxes) == 0:
         return []
     
-    image_result, building_boxes, logits, phrases = dino(image, "building")
+    image_result, building_boxes, logits, phrases = dino(image, VOCAB_FRSTLVL)
 
     if len(building_boxes) == 0:
         return []
@@ -469,7 +469,7 @@ def value_to_excel(value):
 
 ################ DINO FLAT APPLICATION ################
 
-boxes_dinowindows = dino(image, "windows")[1]
+boxes_dinowindows = dino(image, VOCAB_SECONDLVL)[1]
 boxes_windows = chooseboxes(boxes_dinowindows)
 boxes_predicted = [convertcoords(box, image.shape[2], image.shape[1]) for box in boxes_windows]
 image = image.permute(1, 2, 0).numpy() # Von CHW zu HWC

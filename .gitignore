@@ -1,1 +1,5 @@
+.gitignore
+evaluation_values.xlsx
 __pycache__/
+building_facade/
+evaluation_images/

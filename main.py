@@ -2,7 +2,10 @@
 for i in range(4656, 4664):
     namespace = {
         "DATASET_NUMBER": str(i),
-        "SCALE_UP_SIZE": 512
+        "SCALE_UP_SIZE": 512,
+        "VOCAB_GROUNDTRUTH": ["window", "windows", "window pane", "pane"],
+        "VOCAB_FRSTLVL": "building",
+        "VOCAB_SECONDLVL": "windows"
     }
     try:
         with open("flat.py") as file:
