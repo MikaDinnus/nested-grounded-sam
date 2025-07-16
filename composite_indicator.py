@@ -38,7 +38,7 @@ def calcDP2(namespace, weights=P2_WEIGHTS, redundancy=P2_REDUNDANCY, ideal=P2_ID
     if namespace["TYPE"] == "FLAT":
         metrics.append("TIMEFLAT")
     elif namespace["TYPE"] == "NESTED":
-        metrics.append("TIMENESTED")
+        metrics.append("TIMEFLATNESTED")
     
     values = np.array([float(namespace[m]) for m in metrics])
 

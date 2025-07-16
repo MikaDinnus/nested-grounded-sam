@@ -434,32 +434,22 @@ def chooseboxes(boxes):
 
     chosen_boxes = []
     start_time = time.process_time()
-    areas = []
 
+    # prüfe ob die Boxen innerhalb der Gebäude-Bbox liegen
     for i, box in enumerate(boxes):
         box_xyxy = convertcoords(box, width, height)
-        area = box_area(box_xyxy)
-        areas.append(area)
-    
-    threshold = np.quantile(areas, 0.1)
-    print("2) Determined area threshold for triage as: ", str(threshold))
-
-    # prüfe ob die Boxen innerhalb der Gebäude-Bbix liegen und ob sie über dem Area Threshold liegen
-    for i, box in enumerate(boxes):
-        box_xyxy = convertcoords(box, width, height)
-        area = box_area(box_xyxy)
 
         x1, y1, x2, y2 = box_xyxy
         bx1, by1, bx2, by2 = building_box_xyxy
 
         is_inside = (x1 >= bx1) and (y1 >= by1) and (x2 <= bx2) and (y2 <= by2)
 
-        if is_inside and area >= threshold:
+        if is_inside:
             chosen_boxes.append(box)
 
     end_time = time.process_time()
     choose_timer += (end_time - start_time)
-    print("3) Count of boxes surviving triage:", len(chosen_boxes))
+    print("2) Count of boxes surviving triage:", len(chosen_boxes))
     return chosen_boxes
 
 def value_to_excel(value):
