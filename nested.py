@@ -422,13 +422,13 @@ def value_to_excel(value):
 
 ############## DINO FLAT APPLICATION ##################
 
-dino(image, "building")[0]
+dino(image, VOCAB_FRSTLVL)[0]
 
 ################################
 
 
 
-############### CROP IMAGE TO BUILDING BBOX #################
+############### CROP IMAGE TO FIRST LEVEL VOCAB BBOX #################
 
 image_result, boxes, logits, phrases = dino(image, VOCAB_FRSTLVL)
 height, width = image.shape[1], image.shape[2]
