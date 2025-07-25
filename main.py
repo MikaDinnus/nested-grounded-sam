@@ -26,8 +26,8 @@ for i in range(4607, 4608):
     data_subprocesses = {
         "DATASET_NUMBER": str(i),
         "SCALE_UP_SIZE": 512,
-        "VOCAB_GROUNDTRUTH": ['window','windows','pane','panes'],
-        "VOCAB_FRSTLVL": 'building',
+        "VOCAB_GROUNDTRUTH": data_reasoning['VOCAB_GROUNDTRUTH'],
+        "VOCAB_FRSTLVL": data_reasoning['VOCAB_FRSTLVL'],
         "VOCAB_SECONDLVL": object
     }
     try:
