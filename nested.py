@@ -417,6 +417,7 @@ def calcF1Segment():
 
 def value_to_excel(value):
     return value.item() if hasattr(value, "item") else value
+
 ################################
 
 
@@ -457,7 +458,6 @@ print(cropped.shape)
 
 cropped_np = (cropped.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
-Image.fromarray(cropped_np)
 #cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_nested_dino.jpg",dino(cropped, "window")[0])
 
 ################################
@@ -707,7 +707,10 @@ namespace_excel= {
     "GT_SEGMENT": len(segments_groundtruth),
     "PRED_SEGMENT": len(segments_predicted),
     "PAIRS_SEGMENT": len(segments_paired),
-    "DP2_INDEX": "tba"
+    "DP2_INDEX": "tba",
+    "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
+    "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
 }
 
 dp2 = calcDP2(namespace_excel)
@@ -730,7 +733,10 @@ namespace_json = {
     "GT_SEGMENT": len(segments_groundtruth),
     "PRED_SEGMENT": len(segments_predicted),
     "PAIRS_SEGMENT": len(segments_paired),
-    "DP2_INDEX": value_to_excel(dp2)
+    "DP2_INDEX": value_to_excel(dp2),
+    "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
+    "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
 }
 
 with open("write_excel.py") as file:
