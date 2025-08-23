@@ -16,7 +16,7 @@ from composite_indicator import calcDP2
 ######### SETUP #########
 
 print("################################" + "STARTING FLAT OPERATION OF " + str(DATASET_NUMBER) + "################################")
-CURRENT_DATASET = f"building_facade/ADE_train_0000{DATASET_NUMBER}"
+CURRENT_DATASET = f"building_facade/ADE_train_{DATASET_NUMBER}"
 mean_value_boxes = 0.0
 mean_value_segments = 0.0
 choose_timer = 0.0
@@ -32,6 +32,11 @@ image = cv2.resize(image, (SCALE_UP_SIZE, SCALE_UP_SIZE), interpolation=cv2.INTE
 image = torch.from_numpy(image).float() / 255.0
 # Kanäle Höhe Breite
 image = image.permute(2, 0, 1)
+
+_, h, w = image.shape
+
+ORG_IMAGE_SIZE = f"{w},{h}"
+CROPPED_IMAGE_SIZE = ORG_IMAGE_SIZE
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Using cuda' if torch.cuda.is_available() else 'Using cpu')
@@ -682,7 +687,9 @@ namespace_excel= {
     "DP2_INDEX": "tba",
     "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
-    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
+    "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
 }
 
 dp2 = calcDP2(namespace_excel)
@@ -709,7 +716,9 @@ namespace_json = {
     "DP2_INDEX": value_to_excel(dp2),
     "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
-    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
+    "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
 }
 
 with open("write_excel.py") as file:

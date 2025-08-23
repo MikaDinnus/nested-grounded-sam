@@ -6,14 +6,12 @@ P2_IDEAL = np.array([
     1.0, 1.0, 1.0, # Box
     1.0, 1.0, 1.0, # Segmente
     1.0, 1.0, # IoU
-    0.0,# Zeit
     0.0, 0.0]) # Pairs, werden später auf die GT gesetzt
 
 P2_WEIGHTS = np.array([
     1, 1, 1,    # Box
     1, 1, 1,    # Segment
     0.7, 0.7,   # Iou
-    0.1, # Zeit
     2, 2]) # Pairs
 P2_WEIGHTS = P2_WEIGHTS / P2_WEIGHTS.sum()
 
@@ -21,7 +19,6 @@ P2_REDUNDANCY = np.array([
     0.8, 0.8, 0.8,
     0.8, 0.8, 0.8,
     0.5, 0.5,
-    0.1,
     0.5, 0.5])
 
 def calcDP2(namespace, weights=P2_WEIGHTS, redundancy=P2_REDUNDANCY, ideal=P2_IDEAL):
@@ -32,13 +29,8 @@ def calcDP2(namespace, weights=P2_WEIGHTS, redundancy=P2_REDUNDANCY, ideal=P2_ID
     print(f"len(ideal): {len(ideal)}")
     print(f"namespace keys: {list(namespace.keys())}")
 
-    ideal[9] = namespace["GT_BOX"]
-    ideal[10] = namespace["GT_SEGMENT"]
-
-    if namespace["TYPE"] == "FLAT":
-        metrics.append("TIMEFLAT")
-    elif namespace["TYPE"] == "NESTED":
-        metrics.append("TIMEFLATNESTED")
+    ideal[8] = namespace["GT_BOX"]
+    ideal[9] = namespace["GT_SEGMENT"]
     
     values = np.array([float(namespace[m]) for m in metrics])
 

@@ -16,7 +16,7 @@ from composite_indicator import calcDP2
 ######### SETUP #########
 
 print("################################" + "STARTING NESTED OPERATION OF " + str(DATASET_NUMBER) + "################################")
-CURRENT_DATASET = f"building_facade/ADE_train_0000{DATASET_NUMBER}"
+CURRENT_DATASET = f"building_facade/ADE_train_{DATASET_NUMBER}"
 mean_value_boxes = 0.0
 mean_value_segments = 0.0
 
@@ -32,6 +32,10 @@ image = cv2.resize(image, (SCALE_UP_SIZE, SCALE_UP_SIZE), interpolation=cv2.INTE
 image = torch.from_numpy(image).float() / 255.0
 # Kanäle Höhe Breite
 image = image.permute(2, 0, 1)
+
+_, h, w = image.shape
+
+ORG_IMAGE_SIZE = f"{w},{h}"
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Using cuda' if torch.cuda.is_available() else 'Using cpu')
@@ -456,6 +460,12 @@ cropped = image[:, y1:y2, x1:x2]
 crop_position = (x1, y1, x2, y2)
 print(cropped.shape)
 
+_, h, w = cropped.shape
+
+CROPPED_IMAGE_SIZE = f"{w},{h}"
+
+crop_x1, crop_y1 = x1, y1
+
 cropped_np = (cropped.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
 #cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_nested_dino.jpg",dino(cropped, "window")[0])
@@ -506,6 +516,14 @@ for mask in masks:
 
         if len(x) > 2:
             segments_predicted.append({"x": x, "y": y})
+
+segments_predicted = [
+    {
+        "x": [int(xx + crop_x1) for xx in seg["x"]],
+        "y": [int(yy + crop_y1) for yy in seg["y"]],
+    }
+    for seg in segments_predicted
+]
 
 image = image.astype(np.uint8)
 
@@ -679,6 +697,8 @@ print("Precision Seg: ", calcPrecisionSegment())
 print("Recall Seg: ", calcRecallSegment())
 print("F1 Seg: ", calcF1Segment())
 print("Mean IoU of segments: ", mean_value_segments)
+print("Original Image Size: ", ORG_IMAGE_SIZE)
+print("Cropped Image Size: ", CROPPED_IMAGE_SIZE)
 
 ################################
 
@@ -710,7 +730,9 @@ namespace_excel= {
     "DP2_INDEX": "tba",
     "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
-    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
+    "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
 }
 
 dp2 = calcDP2(namespace_excel)
@@ -736,7 +758,9 @@ namespace_json = {
     "DP2_INDEX": value_to_excel(dp2),
     "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
-    "VOCAB_SECONDLVL": VOCAB_SECONDLVL
+    "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
+    "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
 }
 
 with open("write_excel.py") as file:

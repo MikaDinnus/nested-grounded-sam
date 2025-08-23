@@ -10,7 +10,7 @@ import json
 
 load_dotenv()
 
-CURRENT_DATASET = f"building_facade/ADE_train_0000{DATASET_NUMBER}.jpg"
+CURRENT_DATASET = f"building_facade/ADE_train_{DATASET_NUMBER}.jpg"
 
 print("################################" + "STARTING REASONING OPERATION OF " + str(DATASET_NUMBER) + "################################")
 
@@ -46,7 +46,7 @@ request_firstlevel = {
         {
             "parts": [
                 {
-                    "text": f"Use the following json information to the dataset with the number {DATASET_NUMBER} to solve the following problem: To detect the object {VOCAB_SECONDLVL}, the hierarchically higher-level objects must be found. Hierarchically higher means a completely enclosing or containing object in order to later crop the image to this object to make it easier to find the end object. Please respond to this prompt with only your finished analysis, which only includes the word of the Vocab-FirstLevel. Here is the image content description for you to analyze :: {IMAGE_DESCRIPTION}"
+                    "text": f"Use the following json information to the dataset with the number {DATASET_NUMBER} to solve the following problem: To detect the object {VOCAB_SECONDLVL}, the hierarchically higher-level objects must be found. Hierarchically higher means a completely enclosing or containing object in order to later crop the image to this object to make it easier to find the end object. Please respond to this prompt with only your finished analysis, which only includes the word of the Vocab-FirstLevel. Be as precise and concise as possible when choosing. Here is the image content description for you to analyze :: {IMAGE_DESCRIPTION}"
                 }
             ]
         }
