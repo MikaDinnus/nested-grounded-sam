@@ -8,7 +8,7 @@ try:
 except FileNotFoundError:
     wb = Workbook()
     ws = wb.active
-    ws.append(["CODE", "PRECISIONBOX", "RECALLBOX","F1BOX","PRECISIONSEGMENT","RECALLSEGMENT","F1SEGMENT", "MEANIOUBOX", "MEANIOUSEGMENT" "TIMEFLAT", "TIMEFLATNESTED" "TIMENESTED", "TYPE", "GT_BOX", "PRED_BOX", "PAIRS_BOX", "GT_SEGMENT", "PRED_SEGMENT", "PAIRS_SEGMENT", "DP2_INDEX", "VOCAB_GROUNDTRUTH","VOCAB_FRSTLVL", "VOCAB_SECONDLVL" ])
+    ws.append(["CODE", "PRECISIONBOX", "RECALLBOX","F1BOX","PRECISIONSEGMENT","RECALLSEGMENT","F1SEGMENT", "MEANIOUBOX", "MEANIOUSEGMENT" "TIMEFLAT", "TIMEFLATNESTED" "TIMENESTED", "TYPE", "GT_BOX", "PRED_BOX", "PAIRS_BOX", "GT_SEGMENT", "PRED_SEGMENT", "PAIRS_SEGMENT", "DP2_INDEX", "VOCAB_GROUNDTRUTH","VOCAB_FRSTLVL", "VOCAB_SECONDLVL", "ORG_IMAGE_SIZE", "CROPPED_IMAGE_SIZE" ])
 
 code = CODE
 precisionbox = PRECISIONBOX
@@ -33,7 +33,8 @@ dp2_index = DP2_INDEX
 voc_groundtruth = VOCAB_GROUNDTRUTH
 voc_firstlvl = VOCAB_FRSTLVL
 voc_secondlvl = VOCAB_SECONDLVL
-
+org_image_size = ORG_IMAGE_SIZE
+cropped_image_size = CROPPED_IMAGE_SIZE
 
 already_exists = False
 for row in ws.iter_rows(min_row=2, values_only=True):
@@ -44,6 +45,6 @@ for row in ws.iter_rows(min_row=2, values_only=True):
         break
 
 if not already_exists:
-    ws.append([code, precisionbox, recallbox, f1box,precisionsegment,recallsegment,f1segment, ioubox, iousegment, timeflat, timeflatnested, timenested, type_, gt_box, pred_box, pairs_box, gt_segment, pred_segment, pairs_segment, dp2_index, voc_groundtruth, voc_firstlvl, voc_secondlvl])
+    ws.append([code, precisionbox, recallbox, f1box,precisionsegment,recallsegment,f1segment, ioubox, iousegment, timeflat, timeflatnested, timenested, type_, gt_box, pred_box, pairs_box, gt_segment, pred_segment, pairs_segment, dp2_index, voc_groundtruth, voc_firstlvl, voc_secondlvl, org_image_size, cropped_image_size])
 
 wb.save(filename)
