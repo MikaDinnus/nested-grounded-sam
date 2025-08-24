@@ -128,30 +128,59 @@ def bbox_from_polygon(x, y):
     return [min(x), min(y), max(x), max(y)]
 
 # Looks fpor objects with parameters windows etc. 
-def find_objects(data, search_terms, return_polygon = False): # Standardmäßig False, wenn True dann Segmente mitgeben
+def find_objects(data, search_terms, return_polygon = False):
     results = []
-    objects = data["annotation"]["object"] # nimmt alle Objekte aus den Annotations
+    objects = data["annotation"]["object"]
+    
     for obj in objects:
-        name = obj.get("name", "").lower() # nehme den Name (oder "")
-        raw_name = obj.get("raw_name", "").lower() # alternativname innerhalb von ade20k
+        name = obj.get("name", "").lower().strip()
+        raw_name = obj.get("raw_name", "").lower().strip()
+        found_match = False
+        matched_term = None
+        
         for term in search_terms:
-            term = term.lower()
-            if term in name or term in raw_name:
-                poly = obj.get("polygon", {}) # extrahiere Segmentierungsppoly 
-                x = poly.get("x", [])
-                y = poly.get("y", [])
-                if x and y:
-                    bbox = bbox_from_polygon(x, y) # berechne bbox aus polygon
-                    entry = {
-                        "id": obj.get("id"),
-                        "name": obj.get("name"),
-                        "raw_name": obj.get("raw_name"),
-                        "bbox": bbox,
-                    }
-                    if return_polygon: # Wird nur angehangen in der getGTSegments Funktion
-                        entry["polygon"] = {"x": x, "y": y}
-                    results.append(entry)
+            term = term.lower().strip()
+            
+            if term == name or term == raw_name:
+                found_match = True
+                matched_term = term
                 break
+            
+            name_words = name.split()
+            raw_name_words = raw_name.split()
+            if term in name_words or term in raw_name_words:
+                found_match = True
+                matched_term = term
+                break
+            
+
+            if name.startswith(term) or raw_name.startswith(term):
+                if (len(name) == len(term) or 
+                    (len(name) > len(term) and name[len(term)] in [' ', '-', '_']) or
+                    len(raw_name) == len(term) or 
+                    (len(raw_name) > len(term) and raw_name[len(term)] in [' ', '-', '_'])):
+                    found_match = True
+                    matched_term = term
+                    break
+        
+        if found_match:
+            poly = obj.get("polygon", {})
+            x = poly.get("x", [])
+            y = poly.get("y", [])
+            if x and y:
+                bbox = bbox_from_polygon(x, y)
+                entry = {
+                    "id": obj.get("id"),
+                    "name": obj.get("name"),
+                    "raw_name": obj.get("raw_name"),
+                    "bbox": bbox,
+                }
+                if return_polygon:
+                    entry["polygon"] = {"x": x, "y": y}
+                results.append(entry)
+                print(f"Match für '{matched_term}' -> Name: '{obj.get('name')}', Raw: '{obj.get('raw_name')}'")
+    
+    print(f"Insg {len(results)} Matches gefunden")
     return results
 
 # Counts the number of ground truth boxes
@@ -253,29 +282,25 @@ def fromnormtopixel(bboxes, crop_width, crop_height):
 def pair_boxes(gts, preds):
     matched_preds = set()
     pairs = []
-    
+    iou_threshold = 0.5
     for gt in gts:
-        best_iou = 0.5
+        best_iou = iou_threshold
         best_pred = None
         gt_box = torch.tensor(gt).unsqueeze(0)
-        
         for i, pred in enumerate(preds):
             if i in matched_preds:
                 continue
             pred_box = torch.tensor(pred).unsqueeze(0)
-            iou = box_iou(gt_box, pred_box)[0,0].item()
-            
-            if iou > best_iou:
+            iou = box_iou(gt_box, pred_box)[0, 0].item()
+            if iou >= best_iou:
                 best_iou = iou
                 best_pred = i
-                
         if best_pred is not None:
             pairs.append((gt, preds[best_pred]))
             matched_preds.add(best_pred)
-    
     return pairs
 
-# Paitrs predicted segments with ground truth segments based on IoU (greedy)
+# Pairs predicted segments with ground truth segments based on IoU (greedy)
 def pair_segments(gt_segments, pred_segments):
     gt_polys = [Polygon(zip(seg['x'], seg['y'])) for seg in gt_segments]
     pred_polys = [Polygon(zip(seg['x'], seg['y'])) for seg in pred_segments]
@@ -685,7 +710,7 @@ namespace_excel= {
     "PRED_SEGMENT": len(segments_predicted),
     "PAIRS_SEGMENT": len(segments_paired),
     "DP2_INDEX": "tba",
-    "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
+    "VOCAB_GROUNDTRUTH": json.dumps(VOCAB_GROUNDTRUTH),
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
     "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
     "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
@@ -714,7 +739,7 @@ namespace_json = {
     "PRED_SEGMENT": len(segments_predicted),
     "PAIRS_SEGMENT": len(segments_paired),
     "DP2_INDEX": value_to_excel(dp2),
-    "VOCAB_GROUNDTRUTH": VOCAB_GROUNDTRUTH,
+    "VOCAB_GROUNDTRUTH": json.dumps(VOCAB_GROUNDTRUTH),
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
     "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
     "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,

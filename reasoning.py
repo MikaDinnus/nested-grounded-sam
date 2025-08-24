@@ -4,6 +4,45 @@ from dotenv import load_dotenv
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import json
+import ast
+
+def parse_vocab_groundtruth(vocab_input):
+    if isinstance(vocab_input, list):
+        return [str(item).strip().lower() for item in vocab_input if str(item).strip()]
+    
+    if isinstance(vocab_input, str):
+        vocab_input = vocab_input.strip()
+        
+        if ((vocab_input.startswith('"') and vocab_input.endswith('"')) or 
+            (vocab_input.startswith("'") and vocab_input.endswith("'"))):
+            vocab_input = vocab_input[1:-1]
+        
+        try:
+            parsed = json.loads(vocab_input)
+            if isinstance(parsed, list):
+                return [str(item).strip().lower() for item in parsed if str(item).strip()]
+        except:
+            pass
+        
+        try:
+            parsed = ast.literal_eval(vocab_input)
+            if isinstance(parsed, list):
+                return [str(item).strip().lower() for item in parsed if str(item).strip()]
+        except:
+            pass
+        
+        if ',' in vocab_input:
+            vocab_input = vocab_input.strip('[](){}')
+            vocab_input = vocab_input.replace('"', '').replace("'", '')
+            items = [item.strip().lower() for item in vocab_input.split(',') if item.strip()]
+            return items
+        else:
+            vocab_input = vocab_input.strip('[](){}"\'')
+            if vocab_input:
+                return [vocab_input.lower()]
+    
+    return []
+
 
 
 ######### SETUP #########
@@ -88,7 +127,26 @@ if response_groundtruth.ok:
     result = response_groundtruth.json()
     output_text = result["candidates"][0]["content"]["parts"][0]["text"]
     VOCAB_GROUNDTRUTH = output_text.strip()
-    print("################################" + "REASONING FOR " + str(DATASET_NUMBER) + " ENDED. VOCAB FIRST LEVEL WILL BE " + str(VOCAB_FRSTLVL.upper()) + " AND VOCAB GROUND TRUTH WILL BE " + str(VOCAB_GROUNDTRUTH.upper()) + "################################")
+    if 'VOCAB_GROUNDTRUTH' in locals() or 'VOCAB_GROUNDTRUTH' in globals():
+        print(f"DEBUG reasoning.py: VOCAB_GROUNDTRUTH roh: {VOCAB_GROUNDTRUTH}")
+        print(f"DEBUG reasoning.py: Type vor Parsing: {type(VOCAB_GROUNDTRUTH)}")
+        
+        VOCAB_GROUNDTRUTH = parse_vocab_groundtruth(VOCAB_GROUNDTRUTH)
+        
+        print(f"DEBUG reasoning.py: VOCAB_GROUNDTRUTH nach Parsing: {VOCAB_GROUNDTRUTH}")
+        print(f"DEBUG reasoning.py: Type nach Parsing: {type(VOCAB_GROUNDTRUTH)}")
+        print(f"DEBUG reasoning.py: Anzahl Items: {len(VOCAB_GROUNDTRUTH)}")
+        
+        # Validierung
+        if not VOCAB_GROUNDTRUTH:
+            print("WARNUNG: VOCAB_GROUNDTRUTH ist leer nach dem Parsing!")
+        
+        for i, item in enumerate(VOCAB_GROUNDTRUTH):
+            print(f"  Item {i}: '{item}' (type: {type(item)})")
+    
+    vocab_groundtruth_display = str([item.upper() for item in VOCAB_GROUNDTRUTH]) if isinstance(VOCAB_GROUNDTRUTH, list) else str(VOCAB_GROUNDTRUTH).upper()
+    
+    print("################################" + "REASONING FOR " + str(DATASET_NUMBER) + " ENDED. VOCAB FIRST LEVEL WILL BE " + str(VOCAB_FRSTLVL.upper()) + " AND VOCAB GROUND TRUTH WILL BE " + vocab_groundtruth_display + "################################")
 
 else:
     print("Fehler:", response_groundtruth.status_code, response_groundtruth.text)

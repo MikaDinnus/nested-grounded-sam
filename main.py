@@ -2,7 +2,7 @@
 
 object = "windows" # This is the object the user wants to find in the image range
 
-for i in range(4721,4793):
+for i in range(4668,4720):
     # Reasoning operation
     data_reasoning = {
         "DATASET_NUMBER": f"{i:08d}",
