@@ -1,0 +1,74 @@
+from openpyxl import load_workbook, Workbook
+
+filename = "upsampling_experiment/experiment_values_2.xlsx"
+
+try:
+    wb = load_workbook(filename)
+    ws = wb.active
+except FileNotFoundError:
+    wb = Workbook()
+    ws = wb.active
+    ws.append([
+        "CODE","PRECISIONBOX","RECALLBOX","F1BOX",
+        "PRECISIONSEGMENT","RECALLSEGMENT","F1SEGMENT",
+        "MEANIOUBOX","MEANIOUSEGMENT",
+        "TIMEFLAT","TIMEFLATNESTED","TIMENESTED",
+        "TYPE","GT_BOX","PRED_BOX","PAIRS_BOX","GT_SEGMENT","PRED_SEGMENT","PAIRS_SEGMENT",
+        "DP2_INDEX","VOCAB_GROUNDTRUTH","VOCAB_FRSTLVL","VOCAB_SECONDLVL",
+        "ORG_IMAGE_SIZE","CROPPED_IMAGE_SIZE","SEMANTICIOU","SEMANTICMIOU2C",
+        "UPSAMPLING"
+    ])
+
+# Werte aus Namespace
+code = CODE
+precisionbox = PRECISIONBOX
+recallbox = RECALLBOX
+f1box = F1BOX
+precisionsegment = PRECISIONSEGMENT
+recallsegment = RECALLSEGMENT
+f1segment = F1SEGMENT
+ioubox = MEANIOUBOX
+iousegment = MEANIOUSEGMENT
+timeflat = TIMEFLAT if "TIMEFLAT" in globals() else 0.0
+timeflatnested = TIMEFLATNESTED if "TIMEFLATNESTED" in globals() else 0.0
+timenested = TIMENESTED if "TIMENESTED" in globals() else 0.0
+type_ = TYPE
+gt_box = GT_BOX
+pred_box = PRED_BOX
+pairs_box = PAIRS_BOX
+gt_segment = GT_SEGMENT
+pred_segment = PRED_SEGMENT
+pairs_segment = PAIRS_SEGMENT
+dp2_index = DP2_INDEX
+voc_groundtruth = VOCAB_GROUNDTRUTH
+voc_firstlvl = VOCAB_FRSTLVL
+voc_secondlvl = VOCAB_SECONDLVL
+org_image_size = ORG_IMAGE_SIZE
+cropped_image_size = CROPPED_IMAGE_SIZE
+semantic_iou = SEMANTICIOU
+semantic_miou_2c = SEMANTICMIOU2C
+upsampling = UPSAMPLING
+
+# Duplikat-Check: (CODE, TYPE, UPSAMPLING)
+already_exists = False
+for row in ws.iter_rows(min_row=2, values_only=True):
+    code_cell = row[0]
+    type_cell = row[12]
+    upsam_cell = row[27] if len(row) > 27 else None
+    if code_cell == code and type_cell == type_ and upsam_cell == upsampling:
+        already_exists = True
+        break
+
+if not already_exists:
+    ws.append([
+        code, precisionbox, recallbox, f1box,
+        precisionsegment, recallsegment, f1segment,
+        ioubox, iousegment,
+        timeflat, timeflatnested, timenested,
+        type_, gt_box, pred_box, pairs_box, gt_segment, pred_segment, pairs_segment,
+        dp2_index, voc_groundtruth, voc_firstlvl, voc_secondlvl,
+        org_image_size, cropped_image_size, semantic_iou, semantic_miou_2c,
+        upsampling
+    ])
+
+wb.save(filename)
