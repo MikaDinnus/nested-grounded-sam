@@ -19,7 +19,6 @@ except FileNotFoundError:
         "UPSAMPLING"
     ])
 
-# Werte aus Namespace
 code = CODE
 precisionbox = PRECISIONBOX
 recallbox = RECALLBOX
@@ -49,7 +48,6 @@ semantic_iou = SEMANTICIOU
 semantic_miou_2c = SEMANTICMIOU2C
 upsampling = UPSAMPLING
 
-# Duplikat-Check: (CODE, TYPE, UPSAMPLING)
 already_exists = False
 for row in ws.iter_rows(min_row=2, values_only=True):
     code_cell = row[0]

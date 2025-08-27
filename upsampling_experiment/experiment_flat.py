@@ -8,23 +8,21 @@ import numpy as np
 from PIL import Image, ImageDraw
 import json, os, time, sys
 
+##### SETUP #####
+
 print("################################ STARTING EXPERIMENT FLAT ON", DATASET_NUMBER, "| UPSAMPLING:", UPSAMPLING, "################################")
 CURRENT_DATASET = f"building_facade/ADE_train_{DATASET_NUMBER}"
 
-# Mittelwerte (pro Lauf/Variante)
 mean_value_boxes = 0.0
 mean_value_segments = 0.0
 
-# Ordner für Visuals/Ausgaben
 base_dir = f"experiment_outputs/{DATASET_NUMBER}/{UPSAMPLING}"
 os.makedirs(base_dir, exist_ok=True)
 
-# Zeitmessung
 _start_flat = time.process_time()
 
-# ----------------- Helper -----------------
+##### HELPER #####
 def convertcoords(boxes, width, height):
-    # normierte (xc,yc,w,h) -> absolute XYXY in Pixeln
     x_center, y_center, w, h = boxes
     x1 = int((x_center - w/2) * width)
     y1 = int((y_center - h/2) * height)
@@ -206,7 +204,6 @@ def calc_prec_recall_f1(n_pred, n_gt, n_tp):
     return prec, rec, f1
 
 def semantic_iou_2class(gt_segments, pred_segments, H, W):
-    # Klasse=1: window, Klasse=0: background
     if H<=0 or W<=0:
         return 0.0
     gt = np.zeros((H,W), dtype=np.uint8)
@@ -224,7 +221,6 @@ def semantic_iou_2class(gt_segments, pred_segments, H, W):
     inter = np.logical_and(gt==1, pr==1).sum()
     union = np.logical_or (gt==1, pr==1).sum()
     if union == 0:
-        # keine Fenster in GT und Pred -> mIoU(window)=1.0
         return 1.0
     return float(inter) / float(union)
 
@@ -245,7 +241,7 @@ def get_interpolation(inter_name):
     if inter_name == "INTER_CUBIC":   return cv2.INTER_CUBIC
     raise ValueError("Unknown interpolation "+str(inter_name))
 
-# ----------------- Modelle laden -----------------
+##### LOAD MODELS #####
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Using cuda' if torch.cuda.is_available() else 'Using cpu')
 
@@ -259,12 +255,12 @@ sam.to(device)
 sam_predictor = SamPredictor(sam)
 print("SAM model loaded successfully.")
 
-# ----------------- Bild laden (Originalmaßstab) -----------------
+##### LOAD IMG #####
 img_org = ensure_rgb(f"{CURRENT_DATASET}.jpg")
 org_H, org_W = img_org.shape[:2]
 ORG_IMAGE_SIZE = f"{org_W},{org_H}"
 
-# ----------------- Upsample-Variante vorbereiten -----------------
+##### UPSAMPLING #####
 interp = get_interpolation(INTERPOLATION_NAME)
 
 if UPSAMPLING == "RAW":
@@ -272,23 +268,19 @@ if UPSAMPLING == "RAW":
     scale = 1.0
     out_H, out_W = org_H, org_W
 else:
-    # Resize auf quadratische Zielgröße
     work_img = cv2.resize(img_org, (SCALE_UP_SIZE, SCALE_UP_SIZE), interpolation=interp)
     out_H, out_W = SCALE_UP_SIZE, SCALE_UP_SIZE
-    # GT-Rescale-Faktor (isotrope Skalierung)
     scale = SCALE_UP_SIZE / float(org_W)
 
 CROPPED_IMAGE_SIZE = f"{out_W},{out_H}"  # kein Crop im Experiment
 
-# ----------------- GroundingDINO -----------------
+##### DINO APPLICATION #####
 img_chw = to_chw_uint01(work_img)
 _, win_boxes_norm, _, _ = dino(img_chw, VOCAB_SECONDLVL, 0.35, 0.25)
 
-# Optional: zweiter, „großzügigerer“ Versuch (nur wenn erste Suche leer ist)
 if len(win_boxes_norm) == 0 and UPSAMPLING != "RAW":
     _, win_boxes_norm, _, _ = dino(img_chw, VOCAB_SECONDLVL, 0.25, 0.20)
 
-# ----------------- Wenn weiterhin keine Detections: Null-Metriken schreiben -----------------
 if len(win_boxes_norm) == 0:
     pred_boxes_xyxy = []
     segments_pred = []
@@ -296,13 +288,11 @@ if len(win_boxes_norm) == 0:
     cv2.imwrite(os.path.join(base_dir, f"{DATASET_NUMBER}_{UPSAMPLING}_sam.jpg"),
                 cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
 
-    # GT laden & rescalen
     gt_boxes_org = getGTBoxes()
     gt_segs_org  = getGTSegments()
     gt_boxes = rescale_boxes_xyxy(gt_boxes_org, scale)
     gt_segs  = rescale_segments(gt_segs_org, scale)
 
-    # Visuals: GT (grün), keine Preds
     pil = Image.fromarray(work_img.copy()); drw = ImageDraw.Draw(pil)
     for x1,y1,x2,y2 in gt_boxes:
         l,r = sorted([x1,x2]); t,b = sorted([y1,y2])
@@ -314,7 +304,6 @@ if len(win_boxes_norm) == 0:
         drw2.polygon(list(zip(s["x"], s["y"])), outline="green")
     pil2.save(os.path.join(base_dir, f"{DATASET_NUMBER}_{UPSAMPLING}_gt_pred_segments.jpg"))
 
-    # Kennzahlen = 0; Semantic mIoU(2c) korrekt berechnen
     gt_box_cnt = len(gt_boxes); pr_box_cnt = 0; tp_box = 0
     prec_box = rec_box = f1_box = 0.0
 
@@ -327,7 +316,8 @@ if len(win_boxes_norm) == 0:
 
     print(f"[{UPSAMPLING}] NO DETECTIONS -> writing zeros | Semantic mIoU (2c) = {sem_miou_2c:.3f}")
 
-    # Excel-Export
+    ##### WRITE METRICS TO EXCEL #####
+
     TIMEFLAT = time.process_time() - _start_flat
     namespace_excel = {
         "CODE": DATASET_NUMBER,
@@ -363,14 +353,13 @@ if len(win_boxes_norm) == 0:
     with open("upsampling_experiment/write_excel_experiment.py", "r", encoding="utf-8") as f:
         exec(f.read(), namespace_excel)
 
-    # sauber beenden – der Distributor fängt SystemExit ab
     raise SystemExit(0)
 
-# ----------------- Ansonsten: mit Preds weitermachen -----------------
-# Pred-Boxen in aktuelle Skala bringen
+##### START PREDICTIONS #####
+
 pred_boxes_xyxy = [convertcoords(b, out_W, out_H) for b in win_boxes_norm]
 
-# SAM
+##### SAM APPLICATION #####
 sam_predictor.set_image(work_img)
 boxes_xyxy_t = torch.tensor(pred_boxes_xyxy, dtype=torch.float32).unsqueeze(0)
 boxes_sam = sam_predictor.transform.apply_boxes_torch(boxes_xyxy_t, work_img.shape[:2]).to(device)
@@ -393,13 +382,14 @@ for m in masks:
 cv2.imwrite(os.path.join(base_dir, f"{DATASET_NUMBER}_{UPSAMPLING}_sam.jpg"),
             cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
 
-# GT laden & rescalen
+
+##### LOAD GT #####
+
 gt_boxes_org = getGTBoxes()
 gt_segs_org  = getGTSegments()
 gt_boxes = rescale_boxes_xyxy(gt_boxes_org, scale)
 gt_segs  = rescale_segments(gt_segs_org, scale)
 
-# Visuals
 pil = Image.fromarray(work_img.copy())
 drw = ImageDraw.Draw(pil)
 for x1,y1,x2,y2 in gt_boxes:
@@ -418,14 +408,14 @@ for s in segments_pred:
     drw2.polygon(list(zip(s["x"], s["y"])), outline="red")
 pil2.save(os.path.join(base_dir, f"{DATASET_NUMBER}_{UPSAMPLING}_gt_pred_segments.jpg"))
 
-# Pairing & IoU
+##### PAIRING #####
+
 pairs_boxes = pair_boxes(gt_boxes, pred_boxes_xyxy)
 _ = iou_box_pairs(pairs_boxes)
 
 pairs_segs  = pair_segments(gt_segs, segments_pred)
 _ = iou_segments(pairs_segs, gt_segs, segments_pred)
 
-# Kennzahlen
 gt_box_cnt = len(gt_boxes)
 pr_box_cnt = len(pred_boxes_xyxy)
 tp_box     = len(pairs_boxes)
@@ -441,12 +431,15 @@ mean_iou_seg = float(mean_value_segments)
 
 sem_miou_2c  = semantic_iou_2class(gt_segs, segments_pred, out_H, out_W)
 
+##### PRINTING #####
+
 print(f"[{UPSAMPLING}] GT_BOX={gt_box_cnt}  PRED_BOX={pr_box_cnt}  TP_BOX={tp_box}")
 print(f"[{UPSAMPLING}] Prec/Rec/F1 (Box): {prec_box:.3f}/{rec_box:.3f}/{f1_box:.3f} | mIoU_Box={mean_iou_box:.3f}")
 print(f"[{UPSAMPLING}] Prec/Rec/F1 (Seg): {prec_seg:.3f}/{rec_seg:.3f}/{f1_seg:.3f} | mIoU_Seg={mean_iou_seg:.3f}")
 print(f"[{UPSAMPLING}] Semantic mIoU (2-class): {sem_miou_2c:.3f}")
 
-# Excel-Export
+##### FINAL EXCEL EXPORT #####
+
 TIMEFLAT = time.process_time() - _start_flat
 namespace_excel = {
     "CODE": DATASET_NUMBER,
@@ -470,11 +463,11 @@ namespace_excel = {
     "PAIRS_SEGMENT": tp_seg,
     "DP2_INDEX": "n/a",
     "VOCAB_GROUNDTRUTH": json.dumps(VOCAB_GROUNDTRUTH),
-    "VOCAB_FRSTLVL": "building",                 # fix im Experiment
+    "VOCAB_FRSTLVL": "building",
     "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
     "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
     "CROPPED_IMAGE_SIZE": f"{out_W},{out_H}",
-    "SEMANTICIOU":  sem_miou_2c,                 # kompatibel
+    "SEMANTICIOU":  sem_miou_2c,
     "SEMANTICMIOU2C": sem_miou_2c,
     "UPSAMPLING": UPSAMPLING
 }
