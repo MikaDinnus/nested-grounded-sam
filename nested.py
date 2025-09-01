@@ -457,6 +457,50 @@ def box_overlaps_crop(b, crop_xyxy):
 def seg_bbox(seg):
     return [min(seg["x"]), min(seg["y"]), max(seg["x"]), max(seg["y"])]
 
+# Helper zur semantic IoU
+def polygons_to_mask(polys, H, W):
+    mask = np.zeros((H, W), dtype=np.uint8)
+    if not polys:
+        return mask
+    cv2_polys = []
+    for p in polys:
+        xs = np.asarray(p["x"], dtype=np.int32)
+        ys = np.asarray(p["y"], dtype=np.int32)
+        if xs.size < 3 or ys.size < 3:
+            continue
+        pts = np.stack([xs, ys], axis=1)
+        pts[:, 0] = np.clip(pts[:, 0], 0, W - 1)
+        pts[:, 1] = np.clip(pts[:, 1], 0, H - 1)
+        cv2_polys.append(pts.reshape((-1, 1, 2)))
+    if cv2_polys:
+        cv2.fillPoly(mask, cv2_polys, 1)
+    return mask
+
+# s.o
+def iou_from_masks_binary(pred_mask, gt_mask):
+    pred = pred_mask.astype(bool)
+    gt   = gt_mask.astype(bool)
+    inter = np.logical_and(pred, gt).sum()
+    union = np.logical_or(pred, gt).sum()
+    if union == 0:
+        return np.nan
+    return inter / union
+
+# semantic IoU für den Vergleich zu anderen Modellen
+def semantic_iou_window_and_miou2c(H, W, gt_segments, pred_segments):
+    gt_mask   = polygons_to_mask(gt_segments,   H, W)
+    pred_mask = polygons_to_mask(pred_segments, H, W)
+
+    iou_win = iou_from_masks_binary(pred_mask, gt_mask)
+
+    iou_bg = iou_from_masks_binary(1 - pred_mask, 1 - gt_mask)
+
+    vals = [v for v in [iou_win, iou_bg] if not np.isnan(v)]
+    miou_2c = float(np.mean(vals)) if len(vals) > 0 else float("nan")
+
+    return (float(iou_win) if not np.isnan(iou_win) else float("nan"),
+            miou_2c)
+
 ################################
 
 ############## DINO FLAT APPLICATION (nur für Gebäudebox) ##################
@@ -661,6 +705,20 @@ pilimage.save(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NU
 
 ################################
 
+########### SEMANTIC IoU (pixelbasiert) ###########
+
+H_img = SCALE_UP_SIZE
+W_img = SCALE_UP_SIZE
+
+SEMANTIC_IOU, SEMANTIC_MIoU_2C = semantic_iou_window_and_miou2c(
+    H_img, W_img, segments_groundtruth, segments_predicted
+)
+
+print("Semantic IoU (window, pixelbasiert): ", SEMANTIC_IOU)
+print("Semantic mIoU (window + background): ", SEMANTIC_MIoU_2C)
+
+################################
+
 ################# METRIKEN AUSGEBEN ################
 
 def calcRecallBox_override():
@@ -707,7 +765,7 @@ print("Cropped Image Size: ", CROPPED_IMAGE_SIZE)
 processtime_flat_nested = time.process_time() - start_flat_nested
 processtime_nested = time.process_time() - start_nested
 
-namespace_excel= {
+namespace_excel = {
     "CODE": DATASET_NUMBER,
     "PRECISIONBOX": prec_box,
     "RECALLBOX": rec_box,
@@ -732,7 +790,9 @@ namespace_excel= {
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
     "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
     "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
-    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE,
+    "SEMANTICIOU": SEMANTIC_IOU,
+    "SEMANTICMIOU2C": SEMANTIC_MIoU_2C
 }
 
 dp2 = calcDP2(namespace_excel)
@@ -760,7 +820,9 @@ namespace_json = {
     "VOCAB_FRSTLVL": VOCAB_FRSTLVL,
     "VOCAB_SECONDLVL": VOCAB_SECONDLVL,
     "ORG_IMAGE_SIZE": ORG_IMAGE_SIZE,
-    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE
+    "CROPPED_IMAGE_SIZE": CROPPED_IMAGE_SIZE,
+    "SEMANTICIOU": SEMANTIC_IOU,
+    "SEMANTICMIOU2C": SEMANTIC_MIoU_2C
 }
 
 with open("write_excel.py") as file:

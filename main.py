@@ -2,7 +2,7 @@
 
 object = "windows" # This is the object the user wants to find in the image range
 
-for i in range(4799,4820):
+for i in range(4689,4820):
     # Reasoning operation
     data_reasoning = {
         "DATASET_NUMBER": f"{i:08d}",
@@ -24,8 +24,8 @@ for i in range(4799,4820):
         "VOCAB_SECONDLVL": object
     }
     try:
-        with open("flat.py") as file:
-            exec(file.read(), data_subprocesses)
+        # with open("flat.py") as file:
+        #     exec(file.read(), data_subprocesses)
         with open("nested.py") as file:
             exec(file.read(), data_subprocesses)
     except RuntimeError as e:
