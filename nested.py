@@ -13,6 +13,7 @@ from write_json import save_json
 from shapely.geometry import Polygon
 from composite_indicator import calcDP2
 
+
 ######### SETUP #########
 
 print("################################" + "STARTING NESTED OPERATION OF " + str(DATASET_NUMBER) + "################################")
@@ -20,7 +21,7 @@ CURRENT_DATASET = f"building_facade/ADE_train_{DATASET_NUMBER}"
 mean_value_boxes = 0.0
 mean_value_segments = 0.0
 
-# start timer for flat + nested
+# Starte Timer für Flat- und Nested-Zeit
 start_flat_nested = time.process_time()
 
 # Bild laden und auf Zielgröße skalieren
@@ -33,15 +34,18 @@ image = image.permute(2, 0, 1)  # CHW
 _, h, w = image.shape
 ORG_IMAGE_SIZE = f"{w},{h}"
 
+# CPU Ausführung
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Using cuda' if torch.cuda.is_available() else 'Using cpu')
 
+# Lade GroundingDINOpy und zugehörige Gewichte
 GROUNDING_DINO_WEIGHTS = "groundingdino_swint_ogc.pth"
 GROUNDING_DINO_CONFIG = "GroundingDINO_SwinT_OGC.py"
 
 grounding_dino_model = load_model(GROUNDING_DINO_CONFIG, GROUNDING_DINO_WEIGHTS).to(device)
 print("Grounding DINO model loaded successfully.")
 
+# Lade SAM Modell
 sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
 sam.to(device)
 sam_predictor = SamPredictor(sam)
@@ -444,9 +448,11 @@ def calcF1Segment():
         return 0.0
     return 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
+# Hilfsfunktion für die Eintragung von Werten in die Excel-Evaluationsdatei
 def value_to_excel(value):
     return value.item() if hasattr(value, "item") else value
 
+# Hotfix für die Berechnung der Überlappung von Boxen
 def box_overlaps_crop(b, crop_xyxy):
     x1,y1,x2,y2 = b
     cx1,cy1,cx2,cy2 = crop_xyxy
@@ -454,6 +460,7 @@ def box_overlaps_crop(b, crop_xyxy):
     ix2, iy2 = min(x2, cx2), min(y2, cy2)
     return (ix2 > ix1) and (iy2 > iy1)
 
+# Hilfsfunktion zur Berechnung der Segment-Bounding-Box
 def seg_bbox(seg):
     return [min(seg["x"]), min(seg["y"]), max(seg["x"]), max(seg["y"])]
 
@@ -515,30 +522,30 @@ dino(image, VOCAB_FRSTLVL)[0]
 image_result, boxes, logits, phrases = dino(image, VOCAB_FRSTLVL)
 height, width = image.shape[1], image.shape[2]
 
-# DINO gibt normierte xc,yc,w,h im Bereich [0,1] zurück -> hier nach XYXY in Pixel umrechnen
+# DINO gibt normierte xc,yc,w,h im Bereich [0,1] zurück
 boxes = [convertcoords(box, width, height) for box in boxes]
 areas = [box_area(box) for box in boxes]
 max_area_index = areas.index(max(areas))
 largest_box = boxes[max_area_index]
 x1, y1, x2, y2 = largest_box
 
-# sanftes Padding um die Crop-Box (XYXY beibehalten!)
+# Padding um die Crop-Box (XYXY beibehalten!)
 pad = int(0.02 * max(width, height))
 x1 = max(0, x1 - pad); y1 = max(0, y1 - pad)
 x2 = min(width, x2 + pad); y2 = min(height, y2 + pad)
 
 print("Größte Box:", largest_box)
 
-# Crop anwenden (Tensor CHW)
+# Crop anwenden auf Tensor
 cropped = image[:, y1:y2, x1:x2]
-crop_xyxy = (x1, y1, x2, y2)     # WICHTIG: als XYXY beibehalten
-crop_x1, crop_y1 = x1, y1        # für Remapping von XCYCWH (Pixel) -> Global
+crop_xyxy = (x1, y1, x2, y2)
+crop_x1, crop_y1 = x1, y1
 
 print(cropped.shape)
 _, ch, cw = cropped.shape
 CROPPED_IMAGE_SIZE = f"{cw},{ch}"
 
-# Für SAM braucht es HWC uint8
+# Für SAM:  HWC uint8
 cropped_np = (cropped.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
 ################################
@@ -553,6 +560,7 @@ image_np_for_sam = cropped_np.copy()
 ################################
 
 ################ SAM APPLICATION ################
+# Wenn nichts detektiert skippen. Um Pipeline laufen zu lassen nur RuntimeError
 if len(boxes_windows) == 0:
     raise RuntimeError("!!INNER CODE ERROR!! NO WINDOWS DETECTED ON " + DATASET_NUMBER + ". DATASET WILL BE SKIPPED")
 
@@ -586,17 +594,14 @@ segments_predicted = [
     for seg in segments_predicted
 ]
 
-cv2.imwrite(
-    f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_sam.jpg",
-    cv2.cvtColor(img_vis, cv2.COLOR_RGB2BGR)
-)
+cv2.imwrite(f"evaluation_images/{DATASET_NUMBER}_evaluation/nested/{DATASET_NUMBER}_nested_sam.jpg", cv2.cvtColor(img_vis, cv2.COLOR_RGB2BGR))
 
 ################################
 
 ############### GET GROUND TRUTH #################
 
 boxes_groundtruth = getIoUBboxes()      # XYXY im Originalmaßstab
-dbg = find_objects(load_json(f"{CURRENT_DATASET}.json"), VOCAB_GROUNDTRUTH)
+dbg = find_objects(load_json(f"{CURRENT_DATASET}.json"), VOCAB_GROUNDTRUTH) # findet Objekte im ADE20K Datensatz zur Anwendung als Ground Truth
 print("GT terms used (name/raw_name):", sorted({(o.get("name","").lower(), o.get("raw_name","").lower()) for o in dbg}))
 print("Unique raw_names only:", sorted({o.get("raw_name","").lower() for o in dbg}))
 print("VOCAB_GROUNDTRUTH is:", VOCAB_GROUNDTRUTH)
@@ -607,7 +612,7 @@ segments_groundtruth = getGTSegments()  # Polygone im Originalmaßstab
 
 ################ REMAPPING & RESCALING ################
 
-# Normierte Boxen (Crop) -> Pixel im Crop
+# Normierte Boxen (Crop) => Pixel im Crop
 boxes_windows_pix = fromnormtopixel(boxes_windows, W, H)
 # In globale XCYCWH verschieben
 boxes_predicted_xcycwh = [[xc + crop_x1, yc + crop_y1, bw, bh] for (xc, yc, bw, bh) in boxes_windows_pix]
@@ -616,10 +621,10 @@ boxes_predicted = [xcycwh_to_xyxy(b) for b in boxes_predicted_xcycwh]
 
 # GT auf die aktuelle Bildskala (SCALE_UP_SIZE) bringen
 SCALE_UP_VALUE = SCALE_UP_SIZE / ORG_SCALE_SIZE
-boxes_groundtruth = rescalebbox(boxes_groundtruth)                  # XYXY
-segments_groundtruth = rescalesegment(segments_groundtruth)         # Polygone
+boxes_groundtruth = rescalebbox(boxes_groundtruth)
+segments_groundtruth = rescalesegment(segments_groundtruth)
 
-# GT auf den Crop beschränken (nur einmal!)
+# GT auf den Crop beschränken
 boxes_groundtruth = [b for b in boxes_groundtruth if box_overlaps_crop(b, crop_xyxy)]
 GT_COUNT_OVERRIDE = len(boxes_groundtruth)
 
@@ -676,7 +681,7 @@ print("Paired boxes: ", pairs)
 
 iou_pairs = iou(pairs)
 
-# Visualisierung der Paare über dem Cropbild (optional)
+# Visualisierung der Paare über dem Cropbild
 crop_vis = (cropped.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 for iou_val, gt_box, pred_box in iou_pairs:
     gx1, gy1, gx2, gy2 = map(int, gt_box)
@@ -721,6 +726,7 @@ print("Semantic mIoU (window + background): ", SEMANTIC_MIoU_2C)
 
 ################# METRIKEN AUSGEBEN ################
 
+# Hier werden überschriebene Versionen angewandt, da GT_COUNT_OVERRIDE genutzt wird
 def calcRecallBox_override():
     gt_count = GT_COUNT_OVERRIDE
     tp = len(pairs)
