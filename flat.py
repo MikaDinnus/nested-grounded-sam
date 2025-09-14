@@ -108,7 +108,7 @@ def dino(image, caption):
         model=grounding_dino_model,
         image=image,
         caption=caption,
-        box_threshold=0.35,
+        box_threshold=0.40,
         text_threshold=0.25,
         device='cpu'
     )

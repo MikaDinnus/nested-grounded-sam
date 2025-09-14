@@ -1,6 +1,3 @@
-import os
-import sys
-
 START_ID = 4747
 END_ID   = 4820
 SCALE_UP_SIZE = 512
